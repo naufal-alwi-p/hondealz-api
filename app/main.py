@@ -1,19 +1,18 @@
 from typing import Annotated
-import random
 
 from fastapi import FastAPI, Depends, HTTPException, Form, UploadFile, File
 from sqlmodel import Session, select
-from sqlalchemy.exc import OperationalError, IntegrityError
+from sqlalchemy.exc import IntegrityError
 from pydantic import EmailStr
 from pydantic_extra_types.phone_numbers import PhoneNumber, PhoneNumberValidator
 
-from utility import upload_file_to_cloud_storage, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type
+from utility import upload_file_to_cloud_storage, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY
 from auth import encode_jwt, verify_password, generate_expire_time, hash_password, validate_jwt
 from database import get_session
-from model.model import JWTPayload, UserData, UserDataWithoutPhoto
+from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto
 from model.database_model import User
 from model.form_model import LoginForm, UpdateForm
-from model.response_model import AccessToken, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessMessageResponse
+from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse
 
 app = FastAPI(
     title="HonDealz API Documentation",
@@ -24,7 +23,7 @@ app = FastAPI(
 SessionDatabase = Annotated[Session, Depends(get_session)]
 
 @app.post('/user/login')
-def login_user(form_data: Annotated[LoginForm, Form()], session: SessionDatabase) -> AccessToken:
+def login_user(form_data: Annotated[LoginForm, Form()], session: SessionDatabase) -> LoginSuccess:
     try:
         user = session.exec(select(User).where(User.email == form_data.email)).first()
     except:
@@ -33,9 +32,9 @@ def login_user(form_data: Annotated[LoginForm, Form()], session: SessionDatabase
     if not user or not verify_password(form_data.password, user.password):
         raise HTTPException(401, detail="Login Failed")
     
-    payload = JWTPayload(id=user.id, expr=generate_expire_time())
+    payload = AccessTokenPayload(id=user.id, expr=generate_expire_time())
 
-    return AccessToken(access_token=encode_jwt(payload))
+    return LoginSuccess(access_token=encode_jwt(payload))
 
 @app.post('/user/register', status_code=201)
 async def registering_user(
@@ -59,15 +58,15 @@ async def registering_user(
     except:
         raise HTTPException(500, detail="Internal Server Error")
     
-    upload_file_to_cloud_storage(photo_profile, random_filename)
+    upload_file_to_cloud_storage(photo_profile, random_filename, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
 
-    payload = JWTPayload(id=new_user.id, expr=generate_expire_time())
+    payload = AccessTokenPayload(id=new_user.id, expr=generate_expire_time())
 
     data_user = UserData(
         email=new_user.email,
         name=new_user.name,
         telephone=new_user.telephone,
-        photo_profile=get_cloud_storage_public_url(new_user.photo_profile)
+        photo_profile=get_cloud_storage_public_url(new_user.photo_profile, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
     )
 
     return RegisterSuccess(
@@ -76,7 +75,7 @@ async def registering_user(
     )
 
 @app.get("/user")
-def get_user_data(payload: Annotated[JWTPayload, Depends(validate_jwt)], session: SessionDatabase) -> UserDataSuccess:
+def get_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], session: SessionDatabase) -> UserDataSuccess:
     try:
         user = session.get(User, payload.id)
     except:
@@ -89,13 +88,13 @@ def get_user_data(payload: Annotated[JWTPayload, Depends(validate_jwt)], session
         email=user.email,
         name=user.name,
         telephone=user.telephone,
-        photo_profile=get_cloud_storage_public_url(user.photo_profile)
+        photo_profile=get_cloud_storage_public_url(user.photo_profile, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
     )
 
     return UserDataSuccess(user=data_user)
 
 @app.patch("/user/photo-profile")
-def update_user_photo_profile(payload: Annotated[JWTPayload, Depends(validate_jwt)], photo_profile: Annotated[UploadFile, File()], session: SessionDatabase):
+def update_user_photo_profile(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], photo_profile: Annotated[UploadFile, File()], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)
     except:
@@ -116,13 +115,13 @@ def update_user_photo_profile(payload: Annotated[JWTPayload, Depends(validate_jw
     except:
         raise HTTPException(500, detail="Internal Server Error")
 
-    delete_file_on_cloud_storage(old_filename)
-    upload_file_to_cloud_storage(photo_profile, random_filename)
+    delete_file_on_cloud_storage(old_filename, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
+    upload_file_to_cloud_storage(photo_profile, random_filename, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
 
-    return UpdatePhotoSuccess(photo_profile=get_cloud_storage_public_url(user.photo_profile))
+    return UpdatePhotoSuccess(photo_profile=get_cloud_storage_public_url(user.photo_profile, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY))
 
 @app.put("/user")
-def update_user_data(payload: Annotated[JWTPayload, Depends(validate_jwt)], form_data: Annotated[UpdateForm, Form()], session: SessionDatabase):
+def update_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], form_data: Annotated[UpdateForm, Form()], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)
     except:
@@ -166,7 +165,7 @@ def update_user_data(payload: Annotated[JWTPayload, Depends(validate_jwt)], form
         raise HTTPException(400, detail="Nothing to update")
 
 @app.delete("/user")
-def delete_user_account(payload: Annotated[JWTPayload, Depends(validate_jwt)], session: SessionDatabase):
+def delete_user_account(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)
     except:
@@ -181,9 +180,9 @@ def delete_user_account(payload: Annotated[JWTPayload, Depends(validate_jwt)], s
     except:
         raise HTTPException(500, detail="Internal Server Error")
 
-    delete_file_on_cloud_storage(user.photo_profile)
+    delete_file_on_cloud_storage(user.photo_profile, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
 
-    return SuccessMessageResponse(message=f"{user.name} account has been deleted")
+    return SuccessResponse(message=f"{user.name} account has been deleted")
 
 @app.post("/ai-models/motor-image-recognition")
 def motor_image_recognition():

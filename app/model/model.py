@@ -11,6 +11,6 @@ class UserDataWithoutPhoto(BaseModel):
 class UserData(UserDataWithoutPhoto):
     photo_profile: HttpUrl
 
-class JWTPayload(BaseModel):
+class AccessTokenPayload(BaseModel):
     id: int
     expr: int

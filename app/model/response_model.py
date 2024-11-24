@@ -1,32 +1,22 @@
-from typing import Annotated
-
-from pydantic import BaseModel, HttpUrl, EmailStr
-from pydantic_extra_types.phone_numbers import PhoneNumber, PhoneNumberValidator
+from pydantic import BaseModel, HttpUrl
 
 from model.model import UserData, UserDataWithoutPhoto
 
 class SuccessResponse(BaseModel):
-    status: str = "success"
-
-class ErrorResponse(BaseModel):
-    status: str = "error"
     message: str
 
-class SuccessMessageResponse(SuccessResponse):
-    message: str
-
-class AccessToken(SuccessResponse):
+class LoginSuccess(BaseModel):
     access_token: str
 
-class UserDataSuccess(SuccessResponse):
+class UserDataSuccess(BaseModel):
     user: UserData
 
 class RegisterSuccess(UserDataSuccess):
     access_token: str
 
-class UpdatePhotoSuccess(SuccessResponse):
+class UpdatePhotoSuccess(BaseModel):
     photo_profile: HttpUrl
 
-class UpdataDataSuccess(SuccessResponse):
+class UpdataDataSuccess(BaseModel):
     user: UserDataWithoutPhoto
 
