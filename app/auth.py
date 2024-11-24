@@ -17,7 +17,6 @@ JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 BCRYPT_SALT_ROUND = int(os.environ.get("BCRYPT_SALT_ROUND", "12"))
 
 ACCESS_TOKEN_EXPR_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPR_MINUTES", "30"))
-SECRET_TOKEN_EXPR_MINUTES = int(os.environ.get("SECRET_TOKEN_EXPR_MINUTES", "1440"))
 
 oauth_scheme = OAuth2PasswordBearer(tokenUrl="user/login")
 
