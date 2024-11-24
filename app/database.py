@@ -17,7 +17,7 @@ database_url = URL.create(
     query={"unix_socket": os.environ.get("DB_UNIX_SOCKET")} if os.environ.get("APP_ENV", None) == "prod" else EMPTY_DICT # Pilih salah satu
 )
 
-engine = create_engine(database_url)
+engine = create_engine(database_url, echo=True if __name__ == "__main__" else False)
 
 def migration():
     SQLModel.metadata.create_all(engine)

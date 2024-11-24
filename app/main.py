@@ -41,14 +41,14 @@ def login_user(form_data: Annotated[LoginForm, Form()], session: SessionDatabase
 async def registering_user(
         email: Annotated[EmailStr, Form()],
         password: Annotated[str, Form()],
-        nama: Annotated[str, Form()],
-        telepon: Annotated[PhoneNumber, Form(), PhoneNumberValidator(default_region="ID", number_format="NATIONAL")],
+        name: Annotated[str, Form()],
+        telephone: Annotated[PhoneNumber, Form(), PhoneNumberValidator(default_region="ID", number_format="NATIONAL")],
         photo_profile: Annotated[UploadFile, File()],
         session: SessionDatabase
     ) -> RegisterSuccess:
     random_filename = generate_random_name(35) + extension_based_on_mime_type(photo_profile.content_type)
 
-    new_user = User(email=email, password=hash_password(password), nama=nama, telepon=telepon, photo_profile=random_filename)
+    new_user = User(email=email, password=hash_password(password), name=name, telephone=telephone, photo_profile=random_filename)
 
     try:
         session.add(new_user)
@@ -65,8 +65,8 @@ async def registering_user(
 
     data_user = UserData(
         email=new_user.email,
-        nama=new_user.nama,
-        telepon=new_user.telepon,
+        name=new_user.name,
+        telephone=new_user.telephone,
         photo_profile=get_cloud_storage_public_url(new_user.photo_profile)
     )
 
@@ -87,8 +87,8 @@ def get_user_data(payload: Annotated[JWTPayload, Depends(validate_jwt)], session
 
     data_user = UserData(
         email=user.email,
-        nama=user.nama,
-        telepon=user.telepon,
+        name=user.name,
+        telephone=user.telephone,
         photo_profile=get_cloud_storage_public_url(user.photo_profile)
     )
 
@@ -143,12 +143,12 @@ def update_user_data(payload: Annotated[JWTPayload, Depends(validate_jwt)], form
             user.password = hashed_password
             updated = True
 
-    if form_data.nama and form_data.nama != user.nama:
-        user.nama = form_data.nama
+    if form_data.name and form_data.name != user.name:
+        user.name = form_data.name
         updated = True
     
-    if form_data.telepon and form_data.telepon != user.telepon:
-        user.telepon = form_data.telepon
+    if form_data.telephone and form_data.telephone != user.telephone:
+        user.telephone = form_data.telephone
         updated = True
     
     if updated:
@@ -159,7 +159,7 @@ def update_user_data(payload: Annotated[JWTPayload, Depends(validate_jwt)], form
         except:
             raise HTTPException(500, detail="Internal Server Error")
 
-        data_user = UserDataWithoutPhoto(email=user.email, nama=user.nama, telepon=user.telepon)
+        data_user = UserDataWithoutPhoto(email=user.email, name=user.name, telephone=user.telephone)
 
         return UpdataDataSuccess(user=data_user)
     else:
@@ -183,7 +183,7 @@ def delete_user_account(payload: Annotated[JWTPayload, Depends(validate_jwt)], s
 
     delete_file_on_cloud_storage(user.photo_profile)
 
-    return SuccessMessageResponse(message=f"{user.nama} account has been deleted")
+    return SuccessMessageResponse(message=f"{user.name} account has been deleted")
 
 @app.post("/ai-models/motor-image-recognition")
 def motor_image_recognition():

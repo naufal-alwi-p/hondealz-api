@@ -10,5 +10,5 @@ class LoginForm(BaseModel):
 class UpdateForm(BaseModel):
     email: EmailStr | None = None
     password: str | None = None
-    nama: str | None = None
-    telepon: Annotated[PhoneNumber | None, PhoneNumberValidator(default_region="ID", number_format="NATIONAL")] = None
+    name: str | None = None
+    telephone: Annotated[PhoneNumber | None, PhoneNumberValidator(default_region="ID", number_format="NATIONAL")] = None
