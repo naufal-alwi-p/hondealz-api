@@ -22,7 +22,7 @@ def extension_based_on_mime_type(mime_type: str) -> str:
     if mime_type in IMAGE_MIME_TYPE:
         return IMAGE_MIME_TYPE[mime_type]
     else:
-        raise HTTPException(422, detail="File must be jpg, jpeg, png, or webp")
+        raise HTTPException(415, detail="File must be jpg, jpeg, png, or webp")
 
 def upload_file_to_cloud_storage(file: UploadFile, uploaded_filename: str, path: str):
     storage_client = storage.Client()

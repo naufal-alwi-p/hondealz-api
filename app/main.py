@@ -12,18 +12,33 @@ from database import get_session
 from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto
 from model.database_model import User
 from model.form_model import LoginForm, UpdateForm
-from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse
+from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse
 
 app = FastAPI(
     title="HonDealz API Documentation",
     description="Second-Hand Honda Motorcycle Price Prediction Application",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url=None,
+    redoc_url="/documentation"
 )
 
 SessionDatabase = Annotated[Session, Depends(get_session)]
 
-@app.post('/user/login')
-def login_user(form_data: Annotated[LoginForm, Form()], session: SessionDatabase) -> LoginSuccess:
+@app.post(
+    '/user/login',
+    response_model=LoginSuccess,
+    responses={
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+def login_user(form_data: Annotated[LoginForm, Form()], session: SessionDatabase):
     try:
         user = session.exec(select(User).where(User.email == form_data.email)).first()
     except:
@@ -38,7 +53,25 @@ def login_user(form_data: Annotated[LoginForm, Form()], session: SessionDatabase
 
     return LoginSuccess(access_token=encode_jwt(payload), expire=expire_time)
 
-@app.post('/user/register', status_code=201)
+@app.post(
+    '/user/register',
+    status_code=201,
+    response_model=RegisterSuccess,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "User with the same data already registered"
+        },
+        415: {
+            "model": ErrorResponse,
+            "description": "File Not Supported"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
 async def registering_user(
         email: Annotated[EmailStr, Form()],
         password: Annotated[str, Form(min_length=1)],
@@ -47,7 +80,7 @@ async def registering_user(
         telephone: Annotated[PhoneNumber, Form(), PhoneNumberValidator(default_region="ID", number_format="NATIONAL")],
         session: SessionDatabase,
         photo_profile: Annotated[UploadFile | None, File()] = None
-    ) -> RegisterSuccess:
+    ):
     random_filename = (generate_random_name(35) + extension_based_on_mime_type(photo_profile.content_type)) if photo_profile and photo_profile.size else None
 
     new_user = User(email=email, password=hash_password(password), username=username, name=name, telephone=telephone, photo_profile=random_filename)
@@ -82,8 +115,25 @@ async def registering_user(
         expire=expire_time
     )
 
-@app.get("/user")
-def get_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], session: SessionDatabase) -> UserDataSuccess:
+@app.get(
+    "/user",
+    response_model=UserDataSuccess,
+    responses={
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+def get_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)
     except:
@@ -102,7 +152,28 @@ def get_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)],
 
     return UserDataSuccess(user=data_user)
 
-@app.patch("/user/photo-profile")
+@app.patch(
+    "/user/photo-profile",
+    response_model=UpdatePhotoSuccess,
+    responses={
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        415: {
+            "model": ErrorResponse,
+            "description": "File Not Supported",
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
 def update_user_photo_profile(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], photo_profile: Annotated[UploadFile, File()], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)
@@ -113,7 +184,7 @@ def update_user_photo_profile(payload: Annotated[AccessTokenPayload, Depends(val
         raise HTTPException(401, detail="User Unknown")
     
     if not photo_profile.size:
-        raise HTTPException(422, detail="No File Uploaded")
+        raise HTTPException(415, detail="No File Uploaded")
     
     random_filename = generate_random_name(35) + extension_based_on_mime_type(photo_profile.content_type)
     old_filename = user.photo_profile
@@ -134,7 +205,28 @@ def update_user_photo_profile(payload: Annotated[AccessTokenPayload, Depends(val
 
     return UpdatePhotoSuccess(photo_profile=get_cloud_storage_public_url(user.photo_profile, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY))
 
-@app.delete("/user/photo-profile")
+@app.delete(
+    "/user/photo-profile",
+    response_model=SuccessResponse,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "Photo profile already null"
+        },
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
 def delete_user_photo_profile(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)
@@ -145,7 +237,7 @@ def delete_user_photo_profile(payload: Annotated[AccessTokenPayload, Depends(val
         raise HTTPException(401, detail="User Unknown")
     
     if user.photo_profile == None:
-        raise HTTPException(400, detail="Photo Profile Already Null")
+        raise HTTPException(400, detail="Photo profile already null")
     
     old_filename = user.photo_profile
     user.photo_profile = None
@@ -161,7 +253,28 @@ def delete_user_photo_profile(payload: Annotated[AccessTokenPayload, Depends(val
 
     return SuccessResponse(message="Photo Profile Successfully Deleted")
 
-@app.put("/user")
+@app.put(
+    "/user",
+    response_model=UpdataDataSuccess,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "Nothing to update"
+        },
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
 def update_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], form_data: Annotated[UpdateForm, Form()], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)
@@ -208,7 +321,24 @@ def update_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt
     else:
         raise HTTPException(400, detail="Nothing to update")
 
-@app.delete("/user")
+@app.delete(
+    "/user",
+    response_model=SuccessResponse,
+    responses={
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
 def delete_user_account(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)

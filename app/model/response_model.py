@@ -5,6 +5,9 @@ from model.model import UserData, UserDataWithoutPhoto
 class SuccessResponse(BaseModel):
     message: str
 
+class ErrorResponse(BaseModel):
+    detail: str
+
 class LoginSuccess(BaseModel):
     access_token: str
     expire: int
