@@ -8,16 +8,17 @@ class User(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
     email: EmailStr = Field(unique=True)
     password: str
+    username: str = Field(unique=True, max_length=30)
     name: str
-    telephone: Annotated[PhoneNumber, PhoneNumberValidator(default_region="ID", number_format="NATIONAL")] = Field(unique=True, max_length=14)
-    photo_profile: str
+    telephone: Annotated[PhoneNumber, PhoneNumberValidator(default_region="ID", number_format="NATIONAL")] = Field(unique=True, max_length=16)
+    photo_profile: str | None = Field(default=None, max_length=40, unique=True)
 
     motors: list["Motor"] = Relationship(back_populates="user", cascade_delete=True)
 
 class Motor(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", ondelete="CASCADE")
-    motor_image_id: int = Field(foreign_key="motor_image.id", ondelete="CASCADE")
+    motor_image_id: int | None = Field(default=None, foreign_key="motor_image.id", ondelete="SET NULL")
     model: str
     year: int
     mileage: int
@@ -31,7 +32,7 @@ class Motor(SQLModel, table=True):
 
 class Motor_Image(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
-    filename: str
+    filename: str = Field(max_length=40, unique=True)
     model_prediction: str
 
-    motor: Motor = Relationship(back_populates="motor_image", cascade_delete=True)
+    motor: Motor = Relationship(back_populates="motor_image")
