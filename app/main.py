@@ -17,7 +17,7 @@ from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess,
 app = FastAPI(
     title="HonDealz API Documentation",
     description="Second-Hand Honda Motorcycle Price Prediction Application",
-    version="1.0.0",
+    version="1.1.0",
     docs_url=None,
     redoc_url="/documentation"
 )
