@@ -7,12 +7,14 @@ class SuccessResponse(BaseModel):
 
 class LoginSuccess(BaseModel):
     access_token: str
+    expire: int
 
 class UserDataSuccess(BaseModel):
     user: UserData
 
 class RegisterSuccess(UserDataSuccess):
     access_token: str
+    expire: int
 
 class UpdatePhotoSuccess(BaseModel):
     photo_profile: HttpUrl

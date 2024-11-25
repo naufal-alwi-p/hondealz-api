@@ -1,20 +1,28 @@
-import mimetypes
 import random
 import string
 import os
 
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 
 from google.cloud import storage
 
 CLOUD_BUCKET = os.environ["CLOUD_BUCKET"] # Wajib buat env variabel sendiri
 CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY = os.environ.get("CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY", "")
 
+IMAGE_MIME_TYPE = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp"
+}
+
 def generate_random_name(length: int = 30) -> str:
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
 def extension_based_on_mime_type(mime_type: str) -> str:
-    return [ext for ext in mimetypes.types_map if mimetypes.types_map[ext] == mime_type][0]
+    if mime_type in IMAGE_MIME_TYPE:
+        return IMAGE_MIME_TYPE[mime_type]
+    else:
+        raise HTTPException(422, detail="File must be jpg, jpeg, png, or webp")
 
 def upload_file_to_cloud_storage(file: UploadFile, uploaded_filename: str, path: str):
     storage_client = storage.Client()
