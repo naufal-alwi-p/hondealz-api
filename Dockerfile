@@ -5,7 +5,7 @@ WORKDIR /code
 COPY ./requirements.txt /code/requirements.txt
 
 # Bcrypt Dependencies
-RUN sudo apt install build-essential cargo
+RUN apt-get update && apt-get install build-essential cargo -y
 
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
