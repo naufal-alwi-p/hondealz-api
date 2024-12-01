@@ -1,3 +1,5 @@
+from typing import Literal, Any
+
 from pydantic import BaseModel, HttpUrl
 
 from model.model import UserData, UserDataWithoutPhoto
@@ -7,6 +9,13 @@ class SuccessResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+class SelfValidationError(BaseModel):
+    type: Literal["value_error"] = "value_error"
+    loc: list[str] = []
+    msg: str = ""
+    input: str = ""
+    ctx: dict[str, Any] = {}
 
 class LoginSuccess(BaseModel):
     access_token: str

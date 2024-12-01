@@ -3,21 +3,19 @@ from typing import Annotated
 from fastapi import FastAPI, Depends, HTTPException, Form, UploadFile, File
 from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError
-from pydantic import EmailStr
-from pydantic_extra_types.phone_numbers import PhoneNumber, PhoneNumberValidator
 
 from utility import upload_file_to_cloud_storage, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY
 from auth import encode_jwt, verify_password, generate_expire_time, hash_password, validate_jwt
 from database import get_session
 from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto
 from model.database_model import User
-from model.form_model import LoginForm, UpdateForm
-from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse
+from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm
+from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError
 
 app = FastAPI(
     title="HonDealz API Documentation",
     description="Second-Hand Honda Motorcycle Price Prediction Application",
-    version="1.1.0",
+    version="1.2.0",
     docs_url=None,
     redoc_url="/documentation"
 )
@@ -73,17 +71,12 @@ def login_user(form_data: Annotated[LoginForm, Form()], session: SessionDatabase
     }
 )
 async def registering_user(
-        email: Annotated[EmailStr, Form()],
-        password: Annotated[str, Form(min_length=1)],
-        username: Annotated[str, Form(min_length=1, max_length=30)],
-        name: Annotated[str, Form(min_length=1)],
-        telephone: Annotated[PhoneNumber, Form(), PhoneNumberValidator(default_region="ID", number_format="NATIONAL")],
-        session: SessionDatabase,
-        photo_profile: Annotated[UploadFile | None, File()] = None
+        form_data: Annotated[RegisterForm, Form(), File()],
+        session: SessionDatabase
     ):
-    random_filename = (generate_random_name(35) + extension_based_on_mime_type(photo_profile.content_type)) if photo_profile and photo_profile.size else None
+    random_filename = (generate_random_name(35) + extension_based_on_mime_type(form_data.photo_profile.content_type)) if form_data.photo_profile and form_data.photo_profile.size else None
 
-    new_user = User(email=email, password=hash_password(password), username=username, name=name, telephone=telephone, photo_profile=random_filename)
+    new_user = User(email=form_data.email, password=hash_password(form_data.password), username=form_data.username, name=form_data.name, photo_profile=random_filename)
 
     try:
         session.add(new_user)
@@ -91,11 +84,11 @@ async def registering_user(
         session.refresh(new_user)
     except IntegrityError:
         raise HTTPException(400, detail="User with the same data already registered")
-    # except:
-    #     raise HTTPException(500, detail="Internal Server Error")
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
     
-    if photo_profile and photo_profile.size:
-        upload_file_to_cloud_storage(photo_profile, random_filename, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
+    if form_data.photo_profile and form_data.photo_profile.size:
+        upload_file_to_cloud_storage(form_data.photo_profile, random_filename, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
     
     expire_time = generate_expire_time()
 
@@ -105,7 +98,6 @@ async def registering_user(
         email=new_user.email,
         username=new_user.username,
         name=new_user.name,
-        telephone=new_user.telephone,
         photo_profile=get_cloud_storage_public_url(new_user.photo_profile, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY) if random_filename else None
     )
 
@@ -146,11 +138,57 @@ def get_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)],
         email=user.email,
         username=user.username,
         name=user.name,
-        telephone=user.telephone,
         photo_profile=get_cloud_storage_public_url(user.photo_profile, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY) if user.photo_profile else None
     )
 
     return UserDataSuccess(user=data_user)
+
+@app.patch(
+    "/user/password",
+    response_model=SuccessResponse,
+    responses={
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+def update_user_password(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], form_data: Annotated[UpdatePasswordForm, Form()], session: SessionDatabase):
+    try:
+        user = session.get(User, payload.id)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not user:
+        raise HTTPException(401, detail="User Unknown")
+    
+    if not verify_password(form_data.old_password, user.password):
+        raise HTTPException(403, detail="Change password failed")
+    
+    if form_data.new_password == form_data.old_password:
+        raise HTTPException(422, detail=[SelfValidationError(loc=["body", "new_password"], msg="Password cannot be the same as the old password", input=form_data.new_password).model_dump()])
+
+    if form_data.new_password == user.email:
+        raise HTTPException(422, detail=[SelfValidationError(loc=["body", "new_password"], msg="Password cannot be the same as the email", input=form_data.new_password).model_dump()])
+    
+    user.password = hash_password(form_data.new_password)
+
+    try:
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+    
+    return SuccessResponse(message="Password updated")
 
 @app.patch(
     "/user/photo-profile",
@@ -289,11 +327,6 @@ def update_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt
     if form_data.email and form_data.email != user.email:
         user.email = form_data.email
         updated = True
-
-    if form_data.password and not verify_password(form_data.password, user.password):
-        hashed_password = hash_password(form_data.password)
-        user.password = hashed_password
-        updated = True
     
     if form_data.username and form_data.username != user.username:
         user.username = form_data.username
@@ -303,19 +336,17 @@ def update_user_data(payload: Annotated[AccessTokenPayload, Depends(validate_jwt
         user.name = form_data.name
         updated = True
     
-    if form_data.telephone and form_data.telephone != user.telephone:
-        user.telephone = form_data.telephone
-        updated = True
-    
     if updated:
         try:
             session.add(user)
             session.commit()
             session.refresh(user)
+        except IntegrityError:
+            raise HTTPException(400, detail="User with the same data already registered")
         except:
             raise HTTPException(500, detail="Internal Server Error")
 
-        data_user = UserDataWithoutPhoto(email=user.email, username=user.username, name=user.name, telephone=user.telephone)
+        data_user = UserDataWithoutPhoto(email=user.email, username=user.username, name=user.name)
 
         return UpdataDataSuccess(user=data_user)
     else:
