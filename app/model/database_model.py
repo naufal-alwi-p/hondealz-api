@@ -1,8 +1,5 @@
-from typing import Annotated
-
 from sqlmodel import Field, SQLModel, Relationship
 from pydantic import EmailStr
-from pydantic_extra_types.phone_numbers import PhoneNumber, PhoneNumberValidator
 
 class User(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
@@ -10,7 +7,6 @@ class User(SQLModel, table=True):
     password: str
     username: str = Field(unique=True, max_length=30)
     name: str
-    telephone: Annotated[PhoneNumber, PhoneNumberValidator(default_region="ID", number_format="NATIONAL")] = Field(unique=True, max_length=16)
     photo_profile: str | None = Field(default=None, max_length=40, unique=True)
 
     motors: list["Motor"] = Relationship(back_populates="user", cascade_delete=True)

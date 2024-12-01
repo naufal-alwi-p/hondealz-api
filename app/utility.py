@@ -29,7 +29,9 @@ def upload_file_to_cloud_storage(file: UploadFile, uploaded_filename: str, path:
     bucket = storage_client.bucket(CLOUD_BUCKET)
     blob = bucket.blob(f"{path}{uploaded_filename}")
 
-    blob.upload_from_file(file.file, content_type=file.content_type)
+    generation_match_precondition = 0
+
+    blob.upload_from_file(file.file, content_type=file.content_type, if_generation_match=generation_match_precondition)
 
 def get_cloud_storage_public_url(filename: str, path: str):
     public_url = f"https://storage.googleapis.com/{CLOUD_BUCKET}/{path}{filename}"
