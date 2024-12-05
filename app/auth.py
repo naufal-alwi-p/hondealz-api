@@ -18,6 +18,8 @@ BCRYPT_SALT_ROUND = int(os.environ.get("BCRYPT_SALT_ROUND", "12"))
 
 ACCESS_TOKEN_EXPR_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPR_MINUTES", "30"))
 
+RESET_PASSWORD_EXPR_MINUTES = int(os.environ.get("RESET_PASSWORD_EXPR_MINUTES", "10"))
+
 oauth_scheme = OAuth2PasswordBearer(tokenUrl="user/login")
 
 def encode_jwt(payload: AccessTokenPayload) -> str:
@@ -48,3 +50,8 @@ def generate_expire_time() -> int:
     expire_time = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPR_MINUTES)
 
     return int(expire_time.timestamp())
+
+def generate_expire_datetime(minutes: int = RESET_PASSWORD_EXPR_MINUTES) -> datetime:
+    expire_datetime = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+
+    return expire_datetime

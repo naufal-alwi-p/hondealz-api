@@ -82,3 +82,25 @@ class UpdatePasswordForm(BaseModel):
                 raise ValueError("Password confirmation is not the same")
 
         return value
+
+class ResetPasswordForm(BaseModel):
+    token: str = Field(max_length=36)
+    password: str = Field(min_length=8)
+    confirm_password: str
+
+    @field_validator('password')
+    @classmethod
+    def password_validation(cls, value: str):
+        if not re.match(PASSWORD_REGEX, value):
+            raise ValueError("Password must have at least 1 uppercase letter, 1 lowercase letter, and 1 number")
+        
+        return value
+    
+    @field_validator('confirm_password')
+    @classmethod
+    def confirm_password_validation2(cls, value: str, info: ValidationInfo):
+        if 'password' in info.data:
+            if value != info.data['password']:
+                raise ValueError("Password confirmation is not the same")
+
+        return value

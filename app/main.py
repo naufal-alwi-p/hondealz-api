@@ -1,16 +1,23 @@
-from typing import Annotated
+import uuid
 
-from fastapi import FastAPI, Depends, HTTPException, Form, UploadFile, File
-from sqlmodel import Session, select
+from typing import Annotated
+from datetime import datetime, timezone, timedelta
+
+from fastapi import FastAPI, Depends, HTTPException, Form, UploadFile, File, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from sqlmodel import Session, select, desc
+from pydantic import EmailStr
 from sqlalchemy.exc import IntegrityError
 
-from utility import upload_file_to_cloud_storage, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY
-from auth import encode_jwt, verify_password, generate_expire_time, hash_password, validate_jwt
+from utility import upload_file_to_cloud_storage, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type, generate_reset_password_email_content, generate_reset_password_form, generate_success_reset_password, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY
+from auth import encode_jwt, verify_password, generate_expire_time, hash_password, validate_jwt, generate_expire_datetime
 from database import get_session
 from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto
-from model.database_model import User
-from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm
+from model.database_model import User, Forgot_Password
+from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm, ResetPasswordForm
 from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError
+from email_handler import send_reset_password_email
 
 app = FastAPI(
     title="HonDealz API Documentation",
@@ -19,6 +26,8 @@ app = FastAPI(
     docs_url=None,
     redoc_url="/documentation"
 )
+
+app.mount("/assets", StaticFiles(directory="app/assets"), "assets")
 
 SessionDatabase = Annotated[Session, Depends(get_session)]
 
@@ -74,7 +83,7 @@ async def registering_user(
         form_data: Annotated[RegisterForm, Form(), File()],
         session: SessionDatabase
     ):
-    random_filename = (generate_random_name(35) + extension_based_on_mime_type(form_data.photo_profile.content_type)) if form_data.photo_profile and form_data.photo_profile.size else None
+    random_filename = (generate_random_name(33) + extension_based_on_mime_type(form_data.photo_profile.content_type)) if form_data.photo_profile and form_data.photo_profile.size else None
 
     new_user = User(email=form_data.email, password=hash_password(form_data.password), username=form_data.username, name=form_data.name, photo_profile=random_filename)
 
@@ -106,6 +115,63 @@ async def registering_user(
         access_token=encode_jwt(payload),
         expire=expire_time
     )
+
+@app.post(
+    "/user/forgot-password",
+    response_model=SuccessResponse,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "Already requested it a while ago"
+        },
+        404: {
+            "model": ErrorResponse,
+            "description": "Not Found"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+def forgot_password(email: Annotated[EmailStr, Form()], session: SessionDatabase, request: Request):
+    try:
+        user = session.exec(select(User).where(User.email == email)).first()
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not user:
+        raise HTTPException(404, detail="Unknown Email")
+    
+    interval_10_minutes = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+    try:
+        latest_fp_token = session.exec(select(Forgot_Password).where(Forgot_Password.user_id == user.id).where(Forgot_Password.expire > interval_10_minutes)).first()
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+    
+    if latest_fp_token:
+        raise HTTPException(400, detail="Recently you have requested a password reset, if you want to request it again, please wait 10 minutes")
+    
+    fp_token = Forgot_Password(uuid=uuid.uuid4(), user=user, expire=generate_expire_datetime())
+
+    try:
+        session.add(fp_token)
+        session.commit()
+        session.refresh(fp_token)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+    
+    url_origin = f"{request.url.scheme}://{request.url.hostname}"
+
+    if not (request.url.port == 80 or request.url.port == 443 or request.url.port == None):
+        url_origin = url_origin + f":{request.url.port}"
+
+    try:
+        send_reset_password_email(user.email, generate_reset_password_email_content(url_origin, fp_token.uuid))
+        return SuccessResponse(message="Success, please check your email to reset your password")
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
 
 @app.get(
     "/user",
@@ -224,7 +290,7 @@ def update_user_photo_profile(payload: Annotated[AccessTokenPayload, Depends(val
     if not photo_profile.size:
         raise HTTPException(415, detail="No File Uploaded")
     
-    random_filename = generate_random_name(35) + extension_based_on_mime_type(photo_profile.content_type)
+    random_filename = generate_random_name(33) + extension_based_on_mime_type(photo_profile.content_type)
     old_filename = user.photo_profile
 
     user.photo_profile = random_filename
@@ -389,6 +455,66 @@ def delete_user_account(payload: Annotated[AccessTokenPayload, Depends(validate_
         delete_file_on_cloud_storage(user.photo_profile, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
 
     return SuccessResponse(message=f"{user.username} account has been deleted")
+
+@app.get("/reset-password", include_in_schema=False)
+def get_method_reset_password():
+    raise HTTPException(404)
+
+@app.get("/reset-password/{uuid}", response_class=HTMLResponse, include_in_schema=False)
+def reset_password_page(uuid: str, session: SessionDatabase):
+    try:
+        fp_token = session.get(Forgot_Password, uuid)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not fp_token:
+        raise HTTPException(404)
+    
+    interval_10_minutes = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+    try:
+        latest_fp_token = session.exec(select(Forgot_Password).where(Forgot_Password.user_id == fp_token.user_id).where(Forgot_Password.expire > interval_10_minutes).order_by(desc(Forgot_Password.expire))).first()
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+    
+    if not latest_fp_token or latest_fp_token.uuid != fp_token.uuid:
+        raise HTTPException(404)
+
+    html_content = generate_reset_password_form(fp_token.uuid)
+
+    return html_content
+
+@app.post("/reset-password", response_class=HTMLResponse, include_in_schema=False)
+def reset_password_handler(form_data: Annotated[ResetPasswordForm, Form()], session: SessionDatabase):
+    try:
+        fp_token = session.get(Forgot_Password, form_data.token)
+        all_fp_token = session.exec(select(Forgot_Password).where(Forgot_Password.user_id == fp_token.user_id)).all()
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not fp_token:
+        raise HTTPException(401, detail="Unauthorized")
+    
+    try:
+        user = fp_token.user
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+    
+    if form_data.password == user.email:
+        raise HTTPException(422, detail=[SelfValidationError(loc=["body", "password"], msg="Password cannot be the same as the email", input=form_data.password).model_dump()])
+    
+    user.password = hash_password(form_data.password)
+
+    try:
+        for token in all_fp_token:
+            session.delete(token)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+    
+    return generate_success_reset_password()
 
 # @app.post("/ai-models/motor-image-recognition")
 # def motor_image_recognition():

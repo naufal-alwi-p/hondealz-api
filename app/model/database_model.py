@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlmodel import Field, SQLModel, Relationship
 from pydantic import EmailStr
 
@@ -10,6 +11,14 @@ class User(SQLModel, table=True):
     photo_profile: str | None = Field(default=None, max_length=40, unique=True)
 
     motors: list["Motor"] = Relationship(back_populates="user", cascade_delete=True)
+    forgot_password: list["Forgot_Password"] = Relationship(back_populates="user", cascade_delete=True)
+
+class Forgot_Password(SQLModel, table=True):
+    uuid: str = Field(primary_key=True, max_length=36)
+    user_id: int = Field(foreign_key="user.id", ondelete="CASCADE")
+    expire: datetime
+
+    user: User = Relationship(back_populates="forgot_password")
 
 class Motor(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
