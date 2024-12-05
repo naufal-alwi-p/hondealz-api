@@ -93,8 +93,8 @@ async def registering_user(
         session.refresh(new_user)
     except IntegrityError:
         raise HTTPException(400, detail="User with the same data already registered")
-    except:
-        raise HTTPException(500, detail="Internal Server Error")
+    # except:
+    #     raise HTTPException(500, detail="Internal Server Error")
     
     if form_data.photo_profile and form_data.photo_profile.size:
         upload_file_to_cloud_storage(form_data.photo_profile, random_filename, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
