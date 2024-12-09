@@ -1,5 +1,7 @@
 import re
 
+from typing import Literal
+
 from fastapi import UploadFile
 
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
@@ -104,3 +106,10 @@ class ResetPasswordForm(BaseModel):
                 raise ValueError("Password confirmation is not the same")
 
         return value
+
+class PricePredictForm(BaseModel):
+    model: Literal['All New Honda Vario 125 & 150', 'All New Honda Vario 125 & 150 Keyless', 'Vario 110', 'Vario 110 ESP', 'Vario 160', 'Vario Techno 110', 'Vario Techno 125 FI']
+    year: int
+    mileage: int
+    province: str
+    engine_size: int

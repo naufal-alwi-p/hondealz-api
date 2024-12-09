@@ -10,14 +10,16 @@ from sqlmodel import Session, select, desc
 from pydantic import EmailStr
 from sqlalchemy.exc import IntegrityError
 
-from utility import upload_file_to_cloud_storage, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type, generate_reset_password_email_content, generate_reset_password_form, generate_success_reset_password, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY
+from utility import upload_file_to_cloud_storage, download_file_from_google_cloud, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type, generate_reset_password_email_content, generate_reset_password_form, generate_success_reset_password
+from utility import CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY
 from auth import encode_jwt, verify_password, generate_expire_time, hash_password, validate_jwt, generate_expire_datetime
 from database import get_session
 from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto
-from model.database_model import User, Forgot_Password
+from model.database_model import User, Forgot_Password, Motor, Motor_Image
 from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm, ResetPasswordForm
 from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError
 from email_handler import send_reset_password_email
+from predict import predict_uploaded_image, predict_motor_price
 
 app = FastAPI(
     title="HonDealz API Documentation",
@@ -93,8 +95,8 @@ async def registering_user(
         session.refresh(new_user)
     except IntegrityError:
         raise HTTPException(400, detail="User with the same data already registered")
-    except:
-        raise HTTPException(500, detail="Internal Server Error")
+    # except:
+    #     raise HTTPException(500, detail="Internal Server Error")
     
     if form_data.photo_profile and form_data.photo_profile.size:
         upload_file_to_cloud_storage(form_data.photo_profile, random_filename, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
@@ -516,9 +518,39 @@ def reset_password_handler(form_data: Annotated[ResetPasswordForm, Form()], sess
     
     return generate_success_reset_password()
 
-# @app.post("/ai-models/motor-image-recognition")
-# def motor_image_recognition():
-#     return { "message": "API for Motocycle Image Recognition Model" }
+@app.post("/ai-models/motor-image-recognition")
+def motor_image_recognition(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], photo: Annotated[UploadFile, File()], session: SessionDatabase):
+    try:
+        user = session.get(User, payload.id)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not user:
+        raise HTTPException(401, detail="User Unknown")
+    
+    if not photo.size:
+        raise HTTPException(415, detail="No File Uploaded")
+
+    predict_result = predict_uploaded_image(photo)
+
+    if predict_result["status"] == "success":
+        random_filename = generate_random_name(33) + extension_based_on_mime_type(photo.content_type)
+
+        motor_image = Motor_Image(user=user, filename=random_filename, model=predict_result["model"])
+
+        try:
+            session.add(motor_image)
+            session.commit()
+            session.refresh(motor_image)
+        except:
+            raise HTTPException(500, detail="Internal Server Error")
+        
+        upload_file_to_cloud_storage(photo_profile, random_filename, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY)
+        
+        return { "id_picture": motor_image.id, "model": motor_image.model }
+    else:
+        raise HTTPException(400, detail=predict_result["message"])
+
 
 # @app.post("/ai-models/motor-price-estimator")
 # def motor_price_estimator():

@@ -9,6 +9,13 @@ from google.cloud import storage
 
 CLOUD_BUCKET = os.environ["CLOUD_BUCKET"] # Wajib buat env variabel sendiri
 CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY = os.environ.get("CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY", "")
+CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY = os.environ.get("CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY", "")
+
+CLOUD_BUCKET_RESOURCE = os.environ["CLOUD_BUCKET_RESOURCE"] # Wajib buat env variabel sendiri
+IMAGE_MODEL_NAME = os.environ["IMAGE_MODEL_NAME"] # Wajib buat env variabel sendiri
+PRICE_MODEL_NAME = os.environ["PRICE_MODEL_NAME"] # Wajib buat env variabel sendiri
+
+CLOUD_BUCKET_RESOURCE = os.environ["CLOUD_BUCKET_RESOURCE"]
 
 IMAGE_MIME_TYPE = {
     "image/jpeg": ".jpg",
@@ -26,14 +33,21 @@ def extension_based_on_mime_type(mime_type: str) -> str:
     else:
         raise HTTPException(415, detail="File must be jpg, jpeg, png, or webp")
 
-def upload_file_to_cloud_storage(file: UploadFile, uploaded_filename: str, path: str):
+def upload_file_to_cloud_storage(file: UploadFile, uploaded_filename: str, path: str, bucket: str = CLOUD_BUCKET):
     storage_client = storage.Client()
-    bucket = storage_client.bucket(CLOUD_BUCKET)
+    bucket = storage_client.bucket(bucket)
     blob = bucket.blob(f"{path}{uploaded_filename}")
 
     generation_match_precondition = 0
 
     blob.upload_from_file(file.file, content_type=file.content_type, if_generation_match=generation_match_precondition)
+
+def download_file_from_google_cloud(destination_file: str, object_file: str, path: str, bucket: str):
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket)
+
+    blob = bucket.blob(f"{path}{object_file}")
+    blob.download_to_filename(destination_file)
 
 def get_cloud_storage_public_url(filename: str, path: str):
     public_url = f"https://storage.googleapis.com/{CLOUD_BUCKET}/{path}{filename}"
