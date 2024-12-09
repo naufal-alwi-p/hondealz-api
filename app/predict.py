@@ -1,9 +1,8 @@
 import os
+import io
 
 from PIL import Image
 import tensorflow as tf
-
-from fastapi import UploadFile
 
 from utility import download_file_from_google_cloud
 from utility import CLOUD_BUCKET_RESOURCE, IMAGE_MODEL_NAME, PRICE_MODEL_NAME
@@ -25,9 +24,9 @@ image_model = MotorImagePredictor(model_path="app/image_model.keras")
 
 price_model = MotorPricePredictorWithRange(model_path="app/price_model.joblib")
 
-def predict_uploaded_image(file: UploadFile):
+def predict_uploaded_image(file: bytes):
     try:
-        img = Image.open(file)
+        img = Image.open(io.BytesIO(file))
 
         if img.mode != 'RGB':
             img = img.convert('RGB')

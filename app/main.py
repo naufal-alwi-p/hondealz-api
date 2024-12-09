@@ -16,8 +16,8 @@ from auth import encode_jwt, verify_password, generate_expire_time, hash_passwor
 from database import get_session
 from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto
 from model.database_model import User, Forgot_Password, Motor, Motor_Image
-from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm, ResetPasswordForm
-from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError
+from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm, ResetPasswordForm, PricePredictForm
+from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError, PricePredictSuccess, ImagePredictSuccess
 from email_handler import send_reset_password_email
 from predict import predict_uploaded_image, predict_motor_price
 
@@ -518,8 +518,33 @@ def reset_password_handler(form_data: Annotated[ResetPasswordForm, Form()], sess
     
     return generate_success_reset_password()
 
-@app.post("/ai-models/motor-image-recognition")
-def motor_image_recognition(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], photo: Annotated[UploadFile, File()], session: SessionDatabase):
+@app.post(
+    "/ai-models/motor-image-recognition",
+    response_model=ImagePredictSuccess,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "Prediction failed"
+        },
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        415: {
+            "model": ErrorResponse,
+            "description": "File Not Supported",
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+async def motor_image_recognition(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], photo: Annotated[UploadFile, File()], session: SessionDatabase):
     try:
         user = session.get(User, payload.id)
     except:
@@ -530,13 +555,15 @@ def motor_image_recognition(payload: Annotated[AccessTokenPayload, Depends(valid
     
     if not photo.size:
         raise HTTPException(415, detail="No File Uploaded")
+    
+    photo_bytes = await photo.read()
 
-    predict_result = predict_uploaded_image(photo)
+    predict_result = predict_uploaded_image(photo_bytes)
 
     if predict_result["status"] == "success":
         random_filename = generate_random_name(33) + extension_based_on_mime_type(photo.content_type)
 
-        motor_image = Motor_Image(user=user, filename=random_filename, model=predict_result["model"])
+        motor_image = Motor_Image(user=user, filename=random_filename, model_prediction=predict_result["model"])
 
         try:
             session.add(motor_image)
@@ -545,13 +572,63 @@ def motor_image_recognition(payload: Annotated[AccessTokenPayload, Depends(valid
         except:
             raise HTTPException(500, detail="Internal Server Error")
         
-        upload_file_to_cloud_storage(photo_profile, random_filename, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY)
-        
-        return { "id_picture": motor_image.id, "model": motor_image.model }
+        await photo.seek(0)
+        upload_file_to_cloud_storage(photo, random_filename, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY)
+
+        return ImagePredictSuccess(id_picture=motor_image.id, model=motor_image.model_prediction)
     else:
         raise HTTPException(400, detail=predict_result["message"])
 
 
-# @app.post("/ai-models/motor-price-estimator")
-# def motor_price_estimator():
-#     return { "message": "API for Second-Hand Motor Price Estimator Model" }
+@app.post(
+    "/ai-models/motor-price-estimator",
+    response_model=PricePredictSuccess,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "Prediction failed"
+        },
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+def motor_price_estimator(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], form_data: Annotated[PricePredictForm, Form()], session: SessionDatabase):
+    try:
+        user = session.get(User, payload.id)
+        motor_image = None
+        if form_data.id_picture != None:
+            motor_image = session.get(Motor_Image, form_data.id_picture)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not user:
+        raise HTTPException(401, detail="User Unknown")
+    
+    predict_result = predict_motor_price(form_data)
+
+    if predict_result["status"] == "success":
+        motor = Motor(user=user, model=form_data.model, year=form_data.year, mileage=form_data.mileage, province=form_data.province, engine_size=form_data.engine_size, predicted_price=predict_result["predicted_price"], min_price=predict_result["price_range"]["lower"], max_price=predict_result["price_range"]["upper"])
+
+        if motor_image:
+            motor.motor_image = motor_image
+
+        try:
+            session.add(motor)
+            session.commit()
+            session.refresh(motor)
+        except:
+            raise HTTPException(500, detail="Internal Server Error")
+
+        return PricePredictSuccess(min_price=motor.min_price, predicted_price=motor.predicted_price, max_price=motor.max_price)
+    else:
+        raise HTTPException(400, detail=predict_result["message"])

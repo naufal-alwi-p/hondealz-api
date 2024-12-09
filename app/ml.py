@@ -48,9 +48,9 @@ class MotorPricePredictorWithRange:
 
     def map_model_to_training(self, selected_model):
         mapping = {
-            'All New Honda Vario 125 & 150 (2015-2018)':
+            'All New Honda Vario 125 & 150':
                 {'model': 'VARIO 125', 'year_range': [2015, 2018]},
-            'All New Honda Vario 125 & 150 Keyless (2018-2022)':
+            'All New Honda Vario 125 & 150 Keyless':
                 {'model': 'VARIO 125', 'year_range': [2018, 2022]},
             'Vario 110': {'model': 'VARIO 110', 'year_range': None},
             'Vario 110 ESP': {'model': 'VARIO 110 ESP', 'year_range': None},

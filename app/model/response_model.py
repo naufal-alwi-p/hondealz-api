@@ -34,3 +34,11 @@ class UpdatePhotoSuccess(BaseModel):
 class UpdataDataSuccess(BaseModel):
     user: UserDataWithoutPhoto
 
+class ImagePredictSuccess(BaseModel):
+    id_picture: int
+    model: str
+
+class PricePredictSuccess(BaseModel):
+    min_price: int
+    predicted_price: int
+    max_price: int
