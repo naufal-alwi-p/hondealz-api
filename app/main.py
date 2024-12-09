@@ -10,14 +10,16 @@ from sqlmodel import Session, select, desc
 from pydantic import EmailStr
 from sqlalchemy.exc import IntegrityError
 
-from utility import upload_file_to_cloud_storage, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type, generate_reset_password_email_content, generate_reset_password_form, generate_success_reset_password, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY
+from utility import upload_file_to_cloud_storage, download_file_from_google_cloud, get_cloud_storage_public_url, delete_file_on_cloud_storage, generate_random_name, extension_based_on_mime_type, generate_reset_password_email_content, generate_reset_password_form, generate_success_reset_password
+from utility import CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY
 from auth import encode_jwt, verify_password, generate_expire_time, hash_password, validate_jwt, generate_expire_datetime
 from database import get_session
 from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto
-from model.database_model import User, Forgot_Password
-from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm, ResetPasswordForm
-from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError
+from model.database_model import User, Forgot_Password, Motor, Motor_Image
+from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm, ResetPasswordForm, PricePredictForm
+from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError, PricePredictSuccess, ImagePredictSuccess
 from email_handler import send_reset_password_email
+from predict import predict_uploaded_image, predict_motor_price
 
 app = FastAPI(
     title="HonDealz API Documentation",
@@ -93,8 +95,8 @@ async def registering_user(
         session.refresh(new_user)
     except IntegrityError:
         raise HTTPException(400, detail="User with the same data already registered")
-    except:
-        raise HTTPException(500, detail="Internal Server Error")
+    # except:
+    #     raise HTTPException(500, detail="Internal Server Error")
     
     if form_data.photo_profile and form_data.photo_profile.size:
         upload_file_to_cloud_storage(form_data.photo_profile, random_filename, CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY)
@@ -516,10 +518,117 @@ def reset_password_handler(form_data: Annotated[ResetPasswordForm, Form()], sess
     
     return generate_success_reset_password()
 
-# @app.post("/ai-models/motor-image-recognition")
-# def motor_image_recognition():
-#     return { "message": "API for Motocycle Image Recognition Model" }
+@app.post(
+    "/ai-models/motor-image-recognition",
+    response_model=ImagePredictSuccess,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "Prediction failed"
+        },
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        415: {
+            "model": ErrorResponse,
+            "description": "File Not Supported",
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+async def motor_image_recognition(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], photo: Annotated[UploadFile, File()], session: SessionDatabase):
+    try:
+        user = session.get(User, payload.id)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
 
-# @app.post("/ai-models/motor-price-estimator")
-# def motor_price_estimator():
-#     return { "message": "API for Second-Hand Motor Price Estimator Model" }
+    if not user:
+        raise HTTPException(401, detail="User Unknown")
+    
+    if not photo.size:
+        raise HTTPException(415, detail="No File Uploaded")
+    
+    photo_bytes = await photo.read()
+
+    predict_result = predict_uploaded_image(photo_bytes)
+
+    if predict_result["status"] == "success":
+        random_filename = generate_random_name(33) + extension_based_on_mime_type(photo.content_type)
+
+        motor_image = Motor_Image(user=user, filename=random_filename, model_prediction=predict_result["model"])
+
+        try:
+            session.add(motor_image)
+            session.commit()
+            session.refresh(motor_image)
+        except:
+            raise HTTPException(500, detail="Internal Server Error")
+        
+        await photo.seek(0)
+        upload_file_to_cloud_storage(photo, random_filename, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY)
+
+        return ImagePredictSuccess(id_picture=motor_image.id, model=motor_image.model_prediction)
+    else:
+        raise HTTPException(400, detail=predict_result["message"])
+
+
+@app.post(
+    "/ai-models/motor-price-estimator",
+    response_model=PricePredictSuccess,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "Prediction failed"
+        },
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+def motor_price_estimator(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], form_data: Annotated[PricePredictForm, Form()], session: SessionDatabase):
+    try:
+        user = session.get(User, payload.id)
+        motor_image = None
+        if form_data.id_picture != None:
+            motor_image = session.get(Motor_Image, form_data.id_picture)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not user:
+        raise HTTPException(401, detail="User Unknown")
+    
+    predict_result = predict_motor_price(form_data)
+
+    if predict_result["status"] == "success":
+        motor = Motor(user=user, model=form_data.model, year=form_data.year, mileage=form_data.mileage, province=form_data.province, engine_size=form_data.engine_size, predicted_price=predict_result["predicted_price"], min_price=predict_result["price_range"]["lower"], max_price=predict_result["price_range"]["upper"])
+
+        if motor_image:
+            motor.motor_image = motor_image
+
+        try:
+            session.add(motor)
+            session.commit()
+            session.refresh(motor)
+        except:
+            raise HTTPException(500, detail="Internal Server Error")
+
+        return PricePredictSuccess(min_price=motor.min_price, predicted_price=motor.predicted_price, max_price=motor.max_price)
+    else:
+        raise HTTPException(400, detail=predict_result["message"])

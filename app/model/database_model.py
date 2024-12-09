@@ -11,6 +11,7 @@ class User(SQLModel, table=True):
     photo_profile: str | None = Field(default=None, max_length=40, unique=True)
 
     motors: list["Motor"] = Relationship(back_populates="user", cascade_delete=True)
+    motor_images: list["Motor_Image"] = Relationship(back_populates="user", cascade_delete=True)
     forgot_password: list["Forgot_Password"] = Relationship(back_populates="user", cascade_delete=True)
 
 class Forgot_Password(SQLModel, table=True):
@@ -27,8 +28,9 @@ class Motor(SQLModel, table=True):
     model: str
     year: int
     mileage: int
-    location: str
-    tax: bool
+    province: str
+    engine_size: int
+    predicted_price: int
     min_price: int
     max_price: int
 
@@ -37,7 +39,9 @@ class Motor(SQLModel, table=True):
 
 class Motor_Image(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", ondelete="CASCADE")
     filename: str = Field(max_length=40, unique=True)
     model_prediction: str
 
+    user: User = Relationship(back_populates="motor_images")
     motor: Motor = Relationship(back_populates="motor_image")
