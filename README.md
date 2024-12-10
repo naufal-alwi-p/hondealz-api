@@ -1,7 +1,10 @@
 # Dokumentasi
 
 ## Deskripsi
-Repository ini merupakan source code server API HonDealz. Sebuah projek Capstone Bangkit Academy 2024 H2. Server API ini memiliki fitur authentication menggunakan JWT (JSON Web Token) dan terintegrasi dengan model Machine Learning yang dapat mengenal jenis motor Vario serta dapat memprediksi harga jual motor Vario bekas berdasarkan beberapa parameter.
+
+Repository ini merupakan source code server API HonDealz. Sebuah projek Capstone Bangkit Academy 2024 H2. Server API ini memiliki fitur authentication menggunakan JWT (JSON Web Token) dan terintegrasi dengan model Machine Learning yang dapat mengenal jenis motor Vario serta dapat memprediksi harga jual motor Vario bekas berdasarkan beberapa parameter. Program ini akan digunakan oleh aplikasi android, berikut link repository aplikasinya:
+
+[HonDealz App](https://github.com/andregtproject/HonDealz)
 
 ## Cara Menjalankan Program
 
@@ -31,7 +34,7 @@ Berikut ini adalah cara menjalankan server API agar dapat digunakan. Sebelum itu
     | `BCRYPT_SALT_ROUND`                       | `12`               | Optional                                           | Bcrypt Salt Round for Hashing Password                                                         |
     | `SENDER_EMAIL`                            |                    | Required                                           | Email used by server to send forgot password form                                              |
     | `EMAIL_PASSWORD`                          |                    | Required                                           | Password for email used by server                                                              |
-    | `RESET_PASSWORD_EXPR_MINUTES`             | `10`               | Optional                                           | Forgot Password form expire time                                                               |
+    | `RESET_PASSWORD_EXPR_MINUTES`             | `10`               | Optional                                           | Forgot Password expire time                                                                    |
 
 ### Menjalankan Program di Komputer Lokal
 Setelah menyiapkan beberapa hal diatas. Aplikasi baru bisa digunakan. Berikut adalah langkah-langkah untuk menjalankan program di komputer.
