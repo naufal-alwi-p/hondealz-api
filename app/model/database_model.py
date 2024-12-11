@@ -1,6 +1,7 @@
 from datetime import datetime
 from sqlmodel import Field, SQLModel, Relationship
 from pydantic import EmailStr
+from typing import Literal
 
 class User(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
@@ -28,11 +29,12 @@ class Motor(SQLModel, table=True):
     model: str
     year: int
     mileage: int
-    province: str
-    engine_size: int
+    location: str
+    tax: Literal["hidup", "mati"] = Field(sa_type="tax")
     predicted_price: int
     min_price: int
     max_price: int
+    created_at: datetime
 
     user: User = Relationship(back_populates="motors")
     motor_image: "Motor_Image" = Relationship(back_populates="motor")
@@ -42,6 +44,7 @@ class Motor_Image(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id", ondelete="CASCADE")
     filename: str = Field(max_length=40, unique=True)
     model_prediction: str
+    created_at: datetime
 
     user: User = Relationship(back_populates="motor_images")
     motor: Motor = Relationship(back_populates="motor_image")

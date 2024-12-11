@@ -4,6 +4,7 @@ import joblib
 from typing import Dict, Union
 import pandas as pd
 from datetime import datetime, timezone
+from sklearn.base import BaseEstimator, TransformerMixin
 
 class MotorImagePredictor:
     def __init__(self, model_path):
@@ -42,184 +43,236 @@ class MotorImagePredictor:
 
         return top_3_predictions
 
-class MotorPricePredictorWithRange:
+class MotorPricePredictorWithRange(BaseEstimator, TransformerMixin):
     def __init__(self, model_path: str = 'optimized_price_model.joblib'):
-        self.model_artifacts = joblib.load(model_path)
+        """Initialize preprocessor with model artifacts."""
+        self.current_year = datetime.now(timezone.utc).year
+        try:
+            model_artifacts = joblib.load(model_path)
+            self.models = model_artifacts['models']
+            self.weights = model_artifacts['weights']
+            self.feature_columns = model_artifacts['feature_columns']
+            self.numerical_features = model_artifacts['numerical_features']
+            self.categorical_features = model_artifacts['categorical_features']
+            self.scaler = model_artifacts['scaler']
+        except Exception as e:
+            raise Exception(f"Error loading model artifacts: {str(e)}")
 
-    def map_model_to_training(self, selected_model):
-        mapping = {
-            'All New Honda Vario 125 & 150':
-                {'model': 'VARIO 125', 'year_range': [2015, 2018]},
-            'All New Honda Vario 125 & 150 Keyless':
-                {'model': 'VARIO 125', 'year_range': [2018, 2022]},
-            'Vario 110': {'model': 'VARIO 110', 'year_range': None},
-            'Vario 110 ESP': {'model': 'VARIO 110 ESP', 'year_range': None},
-            'Vario 160': {'model': 'VARIO 160', 'year_range': None},
-            'Vario Techno 110': {'model': 'VARIO TECHNO 110', 'year_range': None},
-            'Vario Techno 125 FI': {'model': 'VARIO 125', 'year_range': None}
+        # Required input features
+        self.required_features = ['model', 'year', 'mileage', 'location', 'tax']
+        
+        # Model mapping
+        self.model_mapping = {
+            'All New Honda Vario 125 & 150': 'VARIO 125',
+            'All New Honda Vario 125 & 150 Keyless': 'VARIO 125', 
+            'Vario 110': 'VARIO 110',
+            'Vario 110 ESP': 'VARIO 110 ESP',
+            'Vario 160': 'VARIO 160',
+            'Vario Techno 110': 'VARIO TECHNO 110',
+            'Vario Techno 125 FI': 'VARIO 125'
         }
-        return mapping.get(selected_model)
+        
+        # Province mapping
+        self.province_mapping = {
+            'Jakarta': ['Jakarta', 'Jakarta Timur', 'Jakarta Barat', 'Jakarta Selatan', 
+                       'Jakarta Utara', 'Jakarta Pusat'],
+            'Jawa Barat': ['Bandung', 'Depok', 'Bekasi', 'Bogor', 'Cimahi', 'Cianjur', 
+                          'Ciamis', 'Garut', 'Sukabumi', 'Karawang'],
+            'Banten': ['Tangerang', 'Tangerang Selatan', 'Serang', 'Cilegon'],
+            'Jawa Tengah': ['Semarang', 'Magelang', 'Klaten', 'Pemalang'],
+            'Yogyakarta': ['Yogyakarta', 'Sleman', 'Bantul'],
+            'Jawa Timur': ['Surabaya', 'Malang', 'Sidoarjo', 'Gresik', 'Kediri'],
+            'Bali': ['Denpasar', 'Badung', 'Buleleng']
+        }
 
-    def predict(self, data):
-        """
-        Test the price prediction model with given parameters
-
-        Args:
-            model_path (str): Path to the saved model
-            test_data (dict): Dictionary containing test parameters
-        """
+    def _clean_mileage(self, mileage: Union[str, float, int]) -> float:
+        """Clean and standardize mileage format."""
+        if isinstance(mileage, (int, float)):
+            return float(mileage)
+            
         try:
-            # Create DataFrame from test data
+            mileage = str(mileage).lower()
+            if '-' in mileage:
+                start, end = mileage.split('-')
+                start = float(start.replace('km', '').replace(',', '').replace('.', '').strip())
+                end = float(end.replace('km', '').replace(',', '').replace('.', '').strip())
+                return (start + end) / 2
+            return float(mileage.replace('km', '').replace(',', '').replace('.', '').strip())
+        except:
+            raise ValueError(f"Invalid mileage format: {mileage}")
+
+    def _extract_engine_size(self, model: str) -> int:
+        """Extract engine size from model name."""
+        model = str(model).upper()
+        if '160' in model:
+            return 160
+        elif '150' in model:
+            return 150
+        elif '125' in model:
+            return 125
+        return 110
+
+    def _map_location_to_province(self, location: str) -> str:
+        """Map location to province."""
+        location = str(location).lower()
+        for province, cities in self.province_mapping.items():
+            if any(city.lower() in location for city in cities):
+                return province
+        return 'Others'
+
+    def _validate_input(self, df: pd.DataFrame) -> None:
+        """Validate input data."""
+        missing_features = [f for f in self.required_features if f not in df.columns]
+        if missing_features:
+            raise ValueError(f"Missing required features: {missing_features}")
+            
+        if df['year'].max() > self.current_year:
+            raise ValueError(f"Year cannot be greater than {self.current_year}")
+            
+        if df['mileage'].min() < 0:
+            raise ValueError("Mileage cannot be negative")
+
+    def transform(self, data: Dict[str, Union[str, float, int]]) -> pd.DataFrame:
+        """Transform input data untuk prediksi."""
+        # Convert to DataFrame if needed
+        if isinstance(data, dict):
             df = pd.DataFrame([data])
+        else:
+            df = pd.DataFrame(data)
 
-            # Feature engineering
-            current_year = datetime.now(timezone.utc).year
-            df['age'] = current_year - df['year']
-            df['age_squared'] = df['age'] ** 2
-            df['mileage_squared'] = df['mileage'] ** 2
-            df['price_per_cc'] = 0  # Placeholder
-            df['mileage_per_age'] = df['mileage'] / (df['age'] + 1)
-            df['normalized_mileage'] = df['mileage'] / (df['age'] + 1)
-            df['engine_age_interaction'] = df['engine_size'] * np.exp(-df['age']/3)
-            df['depreciation_factor'] = np.exp(-df['age']/5)
-
-            # Categorical features
-            df['age_category'] = pd.cut(df['age'],
-                                    bins=[-np.inf, 2, 4, 6, np.inf],
-                                    labels=['new', 'medium_new', 'medium_old', 'old'])
-
-            df['mileage_segment'] = pd.cut(df['mileage'],
-                                        bins=[0, 5000, 10000, 20000, 30000, float('inf')],
-                                        labels=['very_low', 'low', 'medium', 'high', 'very_high'])
-
-            # Price segments
-            df['price_segment'] = 'medium'  # Default value
-            price_segment_dummies = pd.get_dummies(df['price_segment'], prefix='price_segment')
-
-            # Model features
-            df['is_abs'] = df['model'].str.contains('ABS', case=False).astype(int)
-            df['is_cbs'] = df['model'].str.contains('CBS|ISS', case=False).astype(int)
-            df['is_premium'] = ((df['engine_size'] >= 150) |
-                            df['model'].str.contains('ABS|CBS', case=False)).astype(int)
-
-            # Condition score
-            df['condition_score'] = (100 - (df['age'] * 5 + df['mileage']/1000)) / 100
-            df['condition_score'] = df['condition_score'].clip(0, 1)
-
-            # Location price ratio
-            df['location_price_ratio'] = 1.0
-
-            # Create all necessary dummies
-            age_dummies = pd.get_dummies(df['age_category'], prefix='age_category')
-            mileage_dummies = pd.get_dummies(df['mileage_segment'], prefix='mileage_segment')
-            province_dummies = pd.get_dummies(df['province'], prefix='province')
-
-            # Ensure all price segment categories exist
-            for segment in ['very_low', 'low', 'medium', 'high', 'very_high']:
-                col_name = f'price_segment_{segment}'
-                if col_name not in price_segment_dummies.columns:
-                    price_segment_dummies[col_name] = 0
-
-            # Numerical features
-            numerical_features = [
-                'engine_size', 'year', 'mileage', 'age', 'mileage_per_age',
-                'engine_age_interaction', 'location_price_ratio', 'condition_score',
-                'is_abs', 'is_cbs', 'is_premium', 'age_squared', 'mileage_squared',
-                'price_per_cc', 'normalized_mileage', 'depreciation_factor'
-            ]
-
-            # Combine features and ensure they match the training data
-            feature_cols = self.model_artifacts['feature_columns']
-            final_features = pd.DataFrame(index=df.index)
-
-            # Add numerical features
-            for col in numerical_features:
-                if col in feature_cols:
-                    final_features[col] = df[col]
-
-            # Add dummy variables
-            all_dummies = pd.concat([
-                price_segment_dummies,
-                age_dummies,
-                mileage_dummies,
-                province_dummies
-            ], axis=1)
-
-            # Ensure all required columns are present
-            for col in feature_cols:
-                if col not in final_features.columns:
-                    if col in all_dummies.columns:
-                        final_features[col] = all_dummies[col]
-                    else:
-                        final_features[col] = 0
-
-            # Reorder columns to match training data
-            final_features = final_features[feature_cols]
-
-            # Make predictions
-            rf_pred = self.model_artifacts['models']['rf'].predict(final_features)
-            xgb_pred = self.model_artifacts['models']['xgb'].predict(final_features)
-            gbm_pred = self.model_artifacts['models']['gbm'].predict(final_features)
-
-            # Calculate ensemble prediction
-            weights = self.model_artifacts['weights']
-            base_prediction = (
-                weights['rf'] * rf_pred[0] +
-                weights['xgb'] * xgb_pred[0] +
-                weights['gbm'] * gbm_pred[0]
-            )
-
-            return {
-                "status": "success",
-                "predicted_price": base_prediction
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Error during prediction: {str(e)}"
-            }
-
-    def predict_with_range(self, data: Dict[str, Union[str, int, float]],
-                          confidence_interval: float = 0.1) -> Dict[str, Union[float, str]]:
+        # Validate input
+        self._validate_input(df)
+        
+        # Basic cleaning
+        df['mileage'] = df['mileage'].apply(self._clean_mileage)
+        
+        # Create basic features
+        df['age'] = self.current_year - df['year']
+        df['engine_size'] = df['model'].apply(self._extract_engine_size)
+        df['province'] = df['location'].apply(self._map_location_to_province)
+        
+        # Create age categories with handling for single value
         try:
-            mapped_model = self.map_model_to_training(data['model'])
-            if mapped_model is None:
-                return {
-                    'status': 'error',
-                    'message': 'Invalid model selected'
+            df['age_category'] = pd.qcut(df['age'], 4,
+                                       labels=['new', 'medium_new', 'medium_old', 'old'])
+        except ValueError:
+            # If all values are the same, assign 'new' for low values
+            if df['age'].iloc[0] <= 2:
+                df['age_category'] = 'new'
+            else:
+                df['age_category'] = 'old'
+        
+        # Create numerical features
+        df['age_squared'] = df['age'] ** 2
+        df['mileage_squared'] = df['mileage'] ** 2
+        df['price_per_cc'] = df['engine_size']
+        df['mileage_per_age'] = df['mileage'] / (df['age'] + 1)
+        df['engine_age_interaction'] = df['engine_size'] * np.exp(-df['age']/3)
+        df['normalized_mileage'] = df['mileage'] / (df['age'] + 1)
+        df['depreciation_factor'] = np.exp(-df['age']/5)
+        
+        # Create mileage segments with handling for single value
+        try:
+            df['mileage_segment'] = pd.cut(df['mileage'],
+                                         bins=[0, 5000, 10000, 20000, 30000, float('inf')],
+                                         labels=['very_low', 'low', 'medium', 'high', 'very_high'])
+        except ValueError:
+            # Assign segment based on value
+            mileage = df['mileage'].iloc[0]
+            if mileage <= 5000:
+                df['mileage_segment'] = 'very_low'
+            elif mileage <= 10000:
+                df['mileage_segment'] = 'low'
+            elif mileage <= 20000:
+                df['mileage_segment'] = 'medium'
+            elif mileage <= 30000:
+                df['mileage_segment'] = 'high'
+            else:
+                df['mileage_segment'] = 'very_high'
+                
+        # Price segment for single prediction always set to medium
+        df['price_segment'] = 'medium'
+        
+        # Market features
+        df['is_abs'] = df['model'].str.contains('ABS', case=False, na=False).astype(int)
+        df['is_cbs'] = df['model'].str.contains('CBS|ISS', case=False, na=False).astype(int)
+        df['is_premium'] = ((df['engine_size'] >= 150) |
+                          (df['model'].str.contains('ABS|CBS', case=False, na=False))).astype(int)
+        
+        # Create dummies
+        categorical_columns = ['province', 'age_category', 'price_segment', 'mileage_segment']
+        df_encoded = pd.get_dummies(df, columns=categorical_columns)
+        
+        # Ensure all training features exist
+        for col in self.feature_columns:
+            if col not in df_encoded.columns:
+                df_encoded[col] = 0
+        
+        # Select and order columns
+        X = df_encoded[self.feature_columns]
+        
+        # Scale features
+        X_scaled = self.scaler.transform(X)
+        X_scaled = pd.DataFrame(X_scaled, columns=self.feature_columns)
+        
+        return X_scaled
+
+    def predict(self, data: Dict[str, Union[str, float, int]]) -> Dict[str, Union[float, str]]:
+        """Make price prediction."""
+        try:
+            # Transform features
+            X = self.transform(data)
+            
+            # Make predictions with each model
+            predictions = {}
+            for name, model in self.models.items():
+                pred = model.predict(X)[0]
+                predictions[name] = pred
+            
+            # Calculate ensemble prediction
+            final_prediction = sum(self.weights[name] * predictions[name] 
+                                 for name in self.models.keys())
+            
+            # Calculate prediction range
+            confidence_interval = 0.1  # 10% margin
+            price_range = {
+                'lower': round(final_prediction * (1 - confidence_interval)),
+                'upper': round(final_prediction * (1 + confidence_interval))
+            }
+            
+            return {
+                'status': 'success',
+                'predictions': {
+                    'rf': predictions['rf'],
+                    'xgb': predictions['xgb'],
+                    'gbm': predictions['gbm'],
+                    'final': round(final_prediction),
+                    'price_range': price_range
                 }
-
-            data['model'] = mapped_model['model']
-
-            if mapped_model['year_range'] is not None:
-                if not (mapped_model['year_range'][0] <= data['year'] <= mapped_model['year_range'][1]):
-                    return {
-                        'status': 'error',
-                        'message': f"Year must be between {mapped_model['year_range'][0]} and {mapped_model['year_range'][1]} for this model"
-                    }
-
-            result = self.predict(data)
-
-            if result['status'] == 'success':
-                base_price = result['predicted_price']
-                price_range = base_price * confidence_interval
-                lower_bound = round(base_price - price_range)
-                upper_bound = round(base_price + price_range)
-
-                return {
-                    'predicted_price': round(base_price),
-                    'price_range': {
-                        'lower': lower_bound,
-                        'upper': upper_bound
-                    },
-                    'status': 'success'
-                }
-            return result
-
+            }
+            
         except Exception as e:
             return {
-                'predicted_price': None,
-                'price_range': None,
                 'status': 'error',
                 'message': str(e)
             }
+
+    def batch_predict(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Make predictions for multiple entries."""
+        results = []
+        for _, row in df.iterrows():
+            prediction = self.predict(row.to_dict())
+            if prediction['status'] == 'success':
+                results.append({
+                    'input': row.to_dict(),
+                    'predicted_price': prediction['predictions']['final'],
+                    'price_range_low': prediction['predictions']['price_range']['lower'],
+                    'price_range_high': prediction['predictions']['price_range']['upper']
+                })
+            else:
+                results.append({
+                    'input': row.to_dict(),
+                    'error': prediction['message']
+                })
+        
+        return pd.DataFrame(results)

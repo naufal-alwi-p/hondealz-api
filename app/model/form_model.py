@@ -112,5 +112,5 @@ class PricePredictForm(BaseModel):
     model: Literal['All New Honda Vario 125 & 150', 'All New Honda Vario 125 & 150 Keyless', 'Vario 110', 'Vario 110 ESP', 'Vario 160', 'Vario Techno 110', 'Vario Techno 125 FI']
     year: int
     mileage: int
-    province: str
-    engine_size: int
+    location: str
+    tax: Literal["hidup", "mati"]
