@@ -7,7 +7,7 @@ import tensorflow as tf
 from utility import download_file_from_google_cloud
 from utility import CLOUD_BUCKET_RESOURCE, IMAGE_MODEL_NAME, PRICE_MODEL_NAME
 
-from model.form_model import PricePredictForm
+from model.model import PricePredictInput
 from ml import MotorImagePredictor, MotorPricePredictorWithRange
 
 if not os.path.isfile("app/image_model.keras"):
@@ -44,7 +44,7 @@ def predict_uploaded_image(file: bytes):
             "message": f"Error during prediction: {str(e)}"
         }
 
-def predict_motor_price(data: PricePredictForm):
-    result = price_model.predict_with_range(data.model_dump())
+def predict_motor_price(data: PricePredictInput):
+    result = price_model.predict(data.model_dump())
 
     return result

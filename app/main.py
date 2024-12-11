@@ -14,10 +14,10 @@ from utility import upload_file_to_cloud_storage, download_file_from_google_clou
 from utility import CLOUD_BUCKET_PHOTO_PROFILE_DIRECTORY, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY
 from auth import encode_jwt, verify_password, generate_expire_time, hash_password, validate_jwt, generate_expire_datetime
 from database import get_session
-from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto
+from model.model import AccessTokenPayload, UserData, UserDataWithoutPhoto, PricePredictInput
 from model.database_model import User, Forgot_Password, Motor, Motor_Image
 from model.form_model import LoginForm, UpdateForm, RegisterForm, UpdatePasswordForm, ResetPasswordForm, PricePredictForm
-from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError, PricePredictSuccess, ImagePredictSuccess
+from model.response_model import LoginSuccess, RegisterSuccess, UserDataSuccess, UpdatePhotoSuccess, UpdataDataSuccess, SuccessResponse, ErrorResponse, SelfValidationError, PricePredictSuccess, ImagePredictSuccess, PredictHistory, AllPredictHistory
 from email_handler import send_reset_password_email
 from predict import predict_uploaded_image, predict_motor_price
 
@@ -563,7 +563,7 @@ async def motor_image_recognition(payload: Annotated[AccessTokenPayload, Depends
     if predict_result["status"] == "success":
         random_filename = generate_random_name(33) + extension_based_on_mime_type(photo.content_type)
 
-        motor_image = Motor_Image(user=user, filename=random_filename, model_prediction=predict_result["model"])
+        motor_image = Motor_Image(user=user, filename=random_filename, model_prediction=predict_result["model"], created_at=datetime.now(timezone.utc))
 
         try:
             session.add(motor_image)
@@ -575,7 +575,7 @@ async def motor_image_recognition(payload: Annotated[AccessTokenPayload, Depends
         await photo.seek(0)
         upload_file_to_cloud_storage(photo, random_filename, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY)
 
-        return ImagePredictSuccess(id_picture=motor_image.id, model=motor_image.model_prediction)
+        return ImagePredictSuccess(id_picture=motor_image.id, model=motor_image.model_prediction, created_at=datetime.now(timezone.utc))
     else:
         raise HTTPException(400, detail=predict_result["message"])
 
@@ -614,10 +614,12 @@ def motor_price_estimator(payload: Annotated[AccessTokenPayload, Depends(validat
     if not user:
         raise HTTPException(401, detail="User Unknown")
     
-    predict_result = predict_motor_price(form_data)
+    price_predict_input = PricePredictInput(model=form_data.model, year=form_data.year, mileage=form_data.mileage, location=form_data.location, tax=form_data.tax)
+
+    predict_result = predict_motor_price(price_predict_input)
 
     if predict_result["status"] == "success":
-        motor = Motor(user=user, model=form_data.model, year=form_data.year, mileage=form_data.mileage, province=form_data.province, engine_size=form_data.engine_size, predicted_price=predict_result["predicted_price"], min_price=predict_result["price_range"]["lower"], max_price=predict_result["price_range"]["upper"])
+        motor = Motor(user=user, model=form_data.model, year=form_data.year, mileage=form_data.mileage, location=form_data.location, tax=form_data.tax, predicted_price=predict_result["predictions"]["final"], min_price=predict_result["predictions"]["price_range"]["lower"], max_price=predict_result["predictions"]["price_range"]["upper"], created_at=datetime.now(timezone.utc))
 
         if motor_image:
             motor.motor_image = motor_image
@@ -632,3 +634,110 @@ def motor_price_estimator(payload: Annotated[AccessTokenPayload, Depends(validat
         return PricePredictSuccess(min_price=motor.min_price, predicted_price=motor.predicted_price, max_price=motor.max_price)
     else:
         raise HTTPException(400, detail=predict_result["message"])
+
+@app.get(
+    "/histories",
+    response_model=AllPredictHistory,
+    responses={
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+def list_all_histories(payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], session: SessionDatabase):
+    try:
+        user = session.get(User, payload.id)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not user:
+        raise HTTPException(401, detail="User Unknown")
+
+    try:
+        query = session.exec(select(Motor, Motor_Image).join(Motor_Image).where(Motor.user_id == user.id))
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+    
+    histories = []
+    for motor, motor_image in query:
+        histories.append(PredictHistory(
+            id=motor.id,
+            image_url=get_cloud_storage_public_url(motor_image.filename, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY),
+            model=motor.model,
+            year=motor.year,
+            mileage=motor.mileage,
+            location=motor.location,
+            tax=motor.tax,
+            min_price=motor.min_price,
+            predicted_price=motor.predicted_price,
+            max_price=motor.max_price,
+            created_at=motor.created_at
+        ))
+    
+    return AllPredictHistory(histories=histories)
+
+@app.get(
+    "/history/{id}",
+    response_model=PredictHistory,
+    responses={
+        401: {
+            "model": ErrorResponse,
+            "description": "Unauthorized"
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Forbidden"
+        },
+        404: {
+            "model": ErrorResponse,
+            "description": "Not Found"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal Server Error"
+        }
+    }
+)
+def get_spesific_history(id: int, payload: Annotated[AccessTokenPayload, Depends(validate_jwt)], session: SessionDatabase):
+    try:
+        user = session.get(User, payload.id)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+
+    if not user:
+        raise HTTPException(401, detail="User Unknown")
+    
+    try:
+        motor = session.get(Motor, id)
+    except:
+        raise HTTPException(500, detail="Internal Server Error")
+    
+    if not motor:
+        raise HTTPException(404)
+    
+    result = PredictHistory(
+        id=motor.id,
+        model=motor.model,
+        year=motor.year,
+        mileage=motor.mileage,
+        location=motor.location,
+        tax=motor.tax,
+        min_price=motor.min_price,
+        predicted_price=motor.predicted_price,
+        max_price=motor.max_price,
+        created_at=motor.created_at
+    )
+
+    if not motor.motor_image_id:
+        result.image_url = get_cloud_storage_public_url(motor.motor_image.filename, CLOUD_BUCKET_MOTOR_IMAGE_DIRECTORY),
+    
+    return result
