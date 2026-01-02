@@ -2,9 +2,11 @@
 
 ## Deskripsi
 
-Repository ini merupakan source code server API HonDealz. Sebuah projek Capstone Bangkit Academy 2024 H2. Server API ini memiliki fitur authentication menggunakan JWT (JSON Web Token) dan terintegrasi dengan model Machine Learning yang dapat mengenal jenis motor Vario serta dapat memprediksi harga jual motor Vario bekas berdasarkan beberapa parameter. Program ini akan digunakan oleh aplikasi android, berikut link repository aplikasinya:
+Repository ini merupakan source code server API HonDealz. Sebuah projek Capstone Bangkit Academy 2024 H2. Server API ini memiliki fitur authentication menggunakan JWT (JSON Web Token) dan terintegrasi dengan model Machine Learning yang dapat mengenal jenis motor Vario serta dapat memprediksi harga jual motor Vario bekas berdasarkan beberapa parameter. Program ini terintegrasi dengan model Machine Learning dan akan digunakan oleh aplikasi android, berikut link repository-nya:
 
-[HonDealz App](https://github.com/andregtproject/HonDealz)
+- [HonDealz App (Repository Aplikasi)](https://github.com/andregtproject/HonDealz)
+
+- [HonDealz AI (Repository Machine Learning)](https://github.com/BungaKha/hondealz-Machine-Learning)
 
 ## Cara Menjalankan Program
 
